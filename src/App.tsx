@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Dialog, Tab, Transition } from "@headlessui/react";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
+  PostResource,
   Resource,
   ResourceDetail,
   Skill,
@@ -9,7 +10,10 @@ import {
   fetchResourceSkills,
   fetchResources,
   fetchSkills,
+  saveResource,
 } from "./fetchApi";
+import { Field, Form, Formik } from "formik";
+import * as Yup from "yup";
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(" ");
@@ -20,11 +24,12 @@ export default function Example() {
   const [loading, setLoading] = useState(false);
   const [showNewResourceForm, setShowNewResourceForm] = useState(false);
   const [resources, setResources] = useState<Resource[]>([]);
-  const [, setSkills] = useState<Skill[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
 
   const [selectedResourceId, setSelectedResourceId] = useState<string>("");
   const [selectedResource, setSelectedResource] = useState<ResourceDetail>();
   const [resourceSkills, setResourceSkills] = useState<Skill[]>([]);
+  const [selectedButton, setSelectedButton] = useState("descending");
 
   const Title = () => (
     <>
@@ -42,20 +47,13 @@ export default function Example() {
         setSelectedResourceId("");
         setShowNewResourceForm(true);
       }}
-      className="ml-1 inline-flex items-center rounded-md bg-violet-600 px-4 py-1.5 text-md font-light text-white shadow-sm hover:bg-violet-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600"
+      className="ml-1 inline-flex items-center rounded-md bg-violet-600 px-4 py-1 text-md font-light text-white shadow-sm hover:bg-violet-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600"
     >
       + New Resource
     </button>
   );
 
-  const Nav = (props: {
-    resources: Resource[];
-    setResources: React.Dispatch<React.SetStateAction<Resource[]>>;
-    selectedResourceId: string;
-    setSelectedResourceId: React.Dispatch<React.SetStateAction<string>>;
-  }) => {
-    const [selectedButton, setSelectedButton] = useState("descending");
-
+  const Nav = () => {
     return (
       <nav className="flex flex-1 flex-col">
         <ul role="list" className="flex flex-1 flex-col">
@@ -68,8 +66,8 @@ export default function Example() {
                   type="button"
                   onClick={() => {
                     setSelectedButton("descending");
-                    props.setResources(
-                      props.resources.sort((a, b) => (a.name > b.name ? 1 : -1))
+                    setResources(
+                      resources.sort((a, b) => (a.name > b.name ? 1 : -1))
                     );
                   }}
                   className={
@@ -84,8 +82,8 @@ export default function Example() {
                   type="button"
                   onClick={() => {
                     setSelectedButton("ascending");
-                    props.setResources(
-                      props.resources.sort((a, b) => (b.name > a.name ? 1 : -1))
+                    setResources(
+                      resources.sort((a, b) => (b.name > a.name ? 1 : -1))
                     );
                   }}
                   className={
@@ -102,13 +100,13 @@ export default function Example() {
 
           {/* Resources List */}
           <ul role="list" className="mx-2 mt-4">
-            {props.resources &&
-              props.resources.map((resource) => (
-                <li key={resource.name}>
+            {resources &&
+              resources.map((resource) => (
+                <li key={resource.id}>
                   <span
-                    onClick={() => props.setSelectedResourceId(resource.id)}
+                    onClick={() => setSelectedResourceId(resource.id)}
                     className={classNames(
-                      resource.id === props.selectedResourceId
+                      resource.id === selectedResourceId
                         ? "bg-violet-100 border border-violet-200"
                         : "",
                       "text-gray-900 group flex gap-x-3 rounded-md p-1 text-sm leading-6"
@@ -134,13 +132,16 @@ export default function Example() {
   };
 
   // Fetch data from API and set in useState variables
+  const fetchData = async () => {
+    const resources = await fetchResources();
+    const skills = await fetchSkills();
+
+    // Appropriately sort the data
+    setResources(resources.sort((a, b) => (a.name > b.name ? 1 : -1)));
+    setSkills(skills.sort((a, b) => (a.id > b.id ? 1 : -1)));
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      const resources = await fetchResources();
-      const skills = await fetchSkills();
-      setResources(resources.sort((a, b) => (a.name > b.name ? 1 : -1)));
-      setSkills(skills.sort((a, b) => (a.name > b.name ? 1 : -1)));
-    };
     fetchData();
   }, []);
 
@@ -151,10 +152,7 @@ export default function Example() {
       if (resource) {
         setSelectedResource(resource);
         const resourceSkills = await fetchResourceSkills(resourceId);
-        setResourceSkills(
-          // resourceSkills.sort((a, b) => (a.name > b.name ? 1 : -1))
-          resourceSkills
-        );
+        setResourceSkills(resourceSkills);
       }
     };
 
@@ -179,6 +177,47 @@ export default function Example() {
       .split(/\s/)
       .reduce((response, word) => (response += word.slice(0, 1)), "");
     return intitials;
+  };
+
+  // Used by Formik to validate the shape and state of the form data
+  const resourceValidationSchema = Yup.object().shape({
+    firstname: Yup.string()
+      .min(2, "Too Short!")
+      .max(50, "Too Long!")
+      .required("First Name is required"),
+    lastname: Yup.string()
+      .min(2, "Too Short!")
+      .max(50, "Too Long!")
+      .required("Last Name is required"),
+    role: Yup.string()
+      .min(2, "Too Short!")
+      .max(50, "Too Long!")
+      .required("Role is required"),
+    email: Yup.string().email("Invalid email").required("Email is required"),
+    skills: Yup.array()
+      .of(Yup.string())
+      .min(1, "At least one skill is required")
+      .required("At least one skill is required"),
+  });
+
+  // Form submit method, saves form data as a new resource
+  const handleSubmit = async (values: PostResource) => {
+    const postObj: PostResource = {
+      firstname: values.firstname,
+      lastname: values.lastname,
+      role: values.role,
+      email: values.email,
+      skills: [...values.skills.map((skill) => Number(skill))],
+    };
+
+    const response = await saveResource(postObj);
+
+    // If save was successful, notify user, refresh data and select the new resource for detail view
+    if (response.id) {
+      alert("New resource saved.");
+      await fetchData();
+      setSelectedResourceId(response.id);
+    }
   };
 
   return (
@@ -243,12 +282,7 @@ export default function Example() {
                   <div className="flex h-16 shrink-0 items-center uppercase">
                     <Title />
                   </div>
-                  <Nav
-                    resources={resources}
-                    setResources={setResources}
-                    selectedResourceId={selectedResourceId}
-                    setSelectedResourceId={setSelectedResourceId}
-                  />
+                  <Nav />
                 </div>
               </Dialog.Panel>
             </Transition.Child>
@@ -263,12 +297,7 @@ export default function Example() {
           <div className="flex my-6 items-center uppercase">
             <Title />
           </div>
-          <Nav
-            resources={resources}
-            setResources={setResources}
-            selectedResourceId={selectedResourceId}
-            setSelectedResourceId={setSelectedResourceId}
-          />
+          <Nav />
         </div>
       </div>
 
@@ -311,7 +340,7 @@ export default function Example() {
 
                 <Tab.Group>
                   <Tab.List>
-                    <div className="ml-14 mt-10">
+                    <div className="ml-16 mt-12">
                       <Tab>
                         {({ selected }) => (
                           <div
@@ -390,7 +419,170 @@ export default function Example() {
           )}
 
           {/* Show new Resource form if new resource button is selected */}
-          {showNewResourceForm && <p>NEW RESOURCE FORM</p>}
+          {showNewResourceForm && (
+            <>
+              <span>Create New Resource</span>
+
+              <div className="mt-4">
+                <Formik
+                  initialValues={{
+                    firstname: "",
+                    lastname: "",
+                    email: "",
+                    role: "",
+                    skills: [],
+                  }}
+                  validationSchema={resourceValidationSchema}
+                  onSubmit={(values, form) =>
+                    handleSubmit(values).then(() => form.resetForm())
+                  }
+                >
+                  {({ errors, touched, dirty, isValid, isSubmitting }) => (
+                    <Form>
+                      <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-8">
+                        <div className="xl:col-span-2 lg:col-span-3 sm:col-span-4">
+                          <label
+                            htmlFor="firstname"
+                            className="text-sm font-light text-gray-600"
+                          >
+                            First Name
+                          </label>
+                          <div>
+                            <Field
+                              name="firstname"
+                              id="firstname"
+                              className="block w-full border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                            />
+                          </div>
+                          {errors.firstname && touched.firstname ? (
+                            <div className="mt-1 text-red-500">
+                              {errors.firstname}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="xl:col-span-2 lg:col-span-3 sm:col-span-4">
+                          <label
+                            htmlFor="lastname"
+                            className="text-sm font-light text-gray-600"
+                          >
+                            Last Name
+                          </label>
+                          <div>
+                            <Field
+                              name="lastname"
+                              id="lastname"
+                              className="block w-full border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                            />
+                          </div>
+                          {errors.lastname && touched.lastname ? (
+                            <div className="mt-1 text-red-500">
+                              {errors.lastname}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-8">
+                        <div className="xl:col-span-2 lg:col-span-3 sm:col-span-4">
+                          <label
+                            htmlFor="role"
+                            className="text-sm font-light text-gray-600"
+                          >
+                            Role
+                          </label>
+                          <div>
+                            <Field
+                              name="role"
+                              id="role"
+                              className="block w-full border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                            />
+                          </div>
+                          {errors.role && touched.role ? (
+                            <div className="mt-1 text-red-500">
+                              {errors.role}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-8">
+                        <div className="xl:col-span-2 lg:col-span-3 sm:col-span-4">
+                          <label
+                            htmlFor="email"
+                            className="text-sm font-light text-gray-600"
+                          >
+                            Email
+                          </label>
+                          <div>
+                            <Field
+                              type="email"
+                              name="email"
+                              id="email"
+                              className="block w-full border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                            />
+                          </div>
+                          {errors.email && touched.email ? (
+                            <div className="mt-1 text-red-500">
+                              {errors.email}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-8">
+                        <div className="xl:col-span-2 lg:col-span-3 sm:col-span-4">
+                          <label
+                            htmlFor="skills"
+                            className="text-sm font-light text-gray-600"
+                          >
+                            Skills
+                          </label>
+
+                          <div className="mt-2">
+                            {skills &&
+                              skills.map((skill) => (
+                                <label
+                                  key={skill.name}
+                                  className="mt-2 flex items-center gap-x-4"
+                                >
+                                  <Field
+                                    type="checkbox"
+                                    name="skills"
+                                    className="rounded-sm border-gray-400"
+                                    value={skill.id.toString()}
+                                  />
+                                  {skill.name}
+                                </label>
+                              ))}
+                          </div>
+                          {errors.skills && touched.skills ? (
+                            <div className="mt-1 text-red-500">
+                              {errors.skills}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-10 flex items-center justify-start gap-x-6">
+                        <button
+                          type="submit"
+                          disabled={!isValid || !dirty || isSubmitting}
+                          className={
+                            isValid && dirty && !isSubmitting
+                              ? "rounded-md bg-violet-100 border border-violet-200 px-8 py-1.5 text-sm text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600"
+                              : "rounded-md bg-violet-50 border border-violet-100 px-8 py-1.5 text-sm text-gray-400"
+                          }
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </Form>
+                  )}
+                </Formik>
+              </div>
+            </>
+          )}
         </div>
       </main>
     </>

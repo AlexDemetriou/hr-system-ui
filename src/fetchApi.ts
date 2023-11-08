@@ -18,7 +18,7 @@ export interface PostResource {
   lastname: string;
   role: string;
   email: string;
-  skills: Skill[];
+  skills: number[];
 }
 
 export const fetchResources = () => {
@@ -60,15 +60,18 @@ export const fetchResourceSkills = (id: string) => {
 export const saveResource = (resource: PostResource) => {
   return fetch(`http://localhost:4000/resources/`, {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(resource),
   })
     .then((response) => response.json())
-    .then((data: string) => data)
+    .then((data: { id: string }) => data)
     .catch((error) => {
       if (error) {
         console.error(error);
       }
-      return "";
+      return { id: "" };
     });
 };
 
